@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fun Room</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #0f172a; --bg-panel: #1e293b; --bg-input: #334155;       
+            --accent: #6366f1; --accent-hover: #4f46e5;
+            --secondary: #10b981; --danger: #ef4444;         
+            --text-main: #f8fafc; --text-muted: #94a3b8;
+            --radius-md: 12px; --radius-sm: 8px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg-main); color: var(--text-main); font-family: 'Inter', sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        
+        .app-container { display: flex; width: 100%; height: 100%; }
+        .main-stage { flex: 1; display: flex; flex-direction: column; padding: 24px; overflow-y: auto; gap: 20px; }
+        .sidebar { width: 380px; background: var(--bg-panel); border-left: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; padding: 24px; gap: 20px; }
+
+        h2 { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        h3 { font-size: 16px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;}
+
+        .video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; background: var(--bg-panel); border-radius: var(--radius-md); padding: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .video-wrapper { display: flex; flex-direction: column; gap: 8px; }
+        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: var(--radius-sm); object-fit: cover; border: 2px solid transparent; transition: border-color 0.2s; }
+        video:hover { border-color: var(--accent); }
+
+        .player-wrapper { flex-grow: 1; background: #000; border-radius: var(--radius-md); overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); min-height: 400px; display: flex; }
+        #yt-player, #html5-video { width: 100%; height: 100%; border: none; }
+
+        .control-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        input { flex: 1; padding: 12px 16px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.1); background: var(--bg-input); color: var(--text-main); font-family: inherit; font-size: 14px; transition: all 0.2s; }
+        input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+        button { padding: 12px 20px; border-radius: var(--radius-sm); border: none; background: var(--accent); color: white; font-family: inherit; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        button:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        
+        .btn-secondary { background: var(--secondary); } .btn-secondary:hover { background: #059669; }
+        .btn-danger { background: var(--danger); } .btn-danger:hover { background: #dc2626; }
+
+        .panel-section { background: rgba(0,0,0,0.2); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; }
+        
+        #queue-list { list-style: none; margin: 15px 0; max-height: 200px; overflow-y: auto; }
+        #queue-list li { padding: 10px; background: var(--bg-input); border-radius: var(--radius-sm); margin-bottom: 8px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--accent); }
+
+        .chat-container { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; }
+        #chat-box { flex-grow: 1; overflow-y: auto; margin-bottom: 15px; font-size: 14px; display: flex; flex-direction: column; gap: 10px; padding-right: 5px; }
+        .chat-msg { background: var(--bg-input); padding: 10px 14px; border-radius: 12px; border-bottom-left-radius: 2px; max-width: 90%; align-self: flex-start; word-wrap: break-word;}
+        .chat-msg.self { background: var(--accent); align-self: flex-end; border-bottom-left-radius: 12px; border-bottom-right-radius: 2px; }
+        .chat-msg b { color: var(--secondary); font-size: 12px; display: block; margin-bottom: 2px;}
+        .chat-msg.self b { color: #fff; opacity: 0.8; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--bg-input); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        
+        <div class="main-stage">
+            <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                <a href="/" style="color: var(--text-muted); text-decoration: none; margin-bottom: 8px; font-size: 14px;">← Back to Hub</a>
+                <h2>
+                    <span style="font-size: 28px;">🛋️</span> Fun Room
+                    <span id="host-badge" style="display: none; font-size: 13px; background: #eab308; color: #000; padding: 4px 10px; border-radius: 20px; margin-left: 10px;">👑 Host</span>
+                </h2>
+            </div>
+            
+            <div class="video-grid" id="video-grid">
+                <div class="video-wrapper">
+                    <video id="my-video" muted autoplay playsinline></video>
+                    <button id="screen-share-btn" class="btn-secondary" onclick="toggleScreenShare()">🖥️ Share Screen</button>
+                </div>
+            </div>
+
+            <div class="player-wrapper" id="yt-player-container">
+                <div id="yt-player"></div>
+            </div>
+            <div class="player-wrapper" id="html5-player-container" style="display: none;">
+                <video id="html5-video" controls controlslist="nodownload"></video>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="panel-section">
+                <h3>🎵 Media Queue</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Anyone can queue songs. Only the Host controls playback.</p>
+                
+                <div class="control-group">
+                    <input type="text" id="video-id-input" placeholder="YouTube URL or ID">
+                    <button onclick="addToQueue()">Queue YT</button>
+                </div>
+                
+                <!-- Hidden by default, only shown to Host via JS -->
+                <div class="control-group" id="direct-video-container" style="display: none;">
+                    <input type="text" id="direct-video-input" placeholder="Direct .mp4 link">
+                    <button class="btn-secondary" onclick="loadDirectMovie()">Play Movie</button>
+                </div>
+
+                <ul id="queue-list">
+                    <li style="color: var(--text-muted); border-left: none; background: transparent;">Queue is empty</li>
+                </ul>
+            </div>
+
+            <div class="panel-section chat-container">
+                <h3>💬 Live Chat</h3>
+                <div id="chat-box">
+                    <div class="chat-msg"><b>System</b> Welcome to the room!</div>
+                </div>
+                <div class="control-group" style="margin-bottom: 0;">
+                    <input type="text" id="chat-input" placeholder="Say something..." onkeypress="handleChat(event)">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Note: Socket.io is still routed from root -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="script.js"></script>
+</body>
+</html>
