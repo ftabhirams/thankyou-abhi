@@ -1,7 +1,7 @@
 {
   "name": "thank-you-abi-platform",
   "version": "1.0.0",
-  "description": "Multi-tool platform",
+  "description": "Multi-tool platform and Sync Room",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
