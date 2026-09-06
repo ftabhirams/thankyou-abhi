@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thank You Abi | Tools</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #0f172a; --bg-card: #1e293b; --accent: #6366f1;
+            --text-main: #f8fafc; --text-muted: #94a3b8;
+        }
+        body {
+            background: var(--bg-main); color: var(--text-main); font-family: 'Inter', sans-serif;
+            margin: 0; padding: 40px 20px; display: flex; flex-direction: column; align-items: center;
+        }
+        .header { text-align: center; margin-bottom: 50px; }
+        .header h1 { font-size: 36px; margin-bottom: 10px; }
+        .header p { color: var(--text-muted); font-size: 18px; }
+        
+        .tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; width: 100%; max-width: 1000px; }
+        .tool-card {
+            background: var(--bg-card); border-radius: 12px; padding: 24px; text-decoration: none; color: inherit;
+            border: 1px solid rgba(255,255,255,0.05); transition: transform 0.2s, border-color 0.2s; display: flex; flex-direction: column;
+        }
+        .tool-card:hover { transform: translateY(-5px); border-color: var(--accent); }
+        .tool-icon { font-size: 40px; margin-bottom: 15px; }
+        .tool-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+        .tool-desc { color: var(--text-muted); line-height: 1.5; flex-grow: 1; }
+        .tag { align-self: flex-start; background: rgba(99, 102, 241, 0.2); color: #a5b4fc; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Thank You Abi</h1>
+        <p>A collection of useful tools and experiments.</p>
+    </div>
+
+    <div class="tools-grid">
+        <a href="/funroom" class="tool-card">
+            <div class="tool-icon">🛋️</div>
+            <div class="tool-title">Fun Room</div>
+            <div class="tool-desc">A private hangout space with synchronized YouTube, direct movies, and screen sharing.</div>
+            <div class="tag">Active</div>
+        </a>
+        <div class="tool-card" style="opacity: 0.6; cursor: default;">
+            <div class="tool-icon">⏳</div>
+            <div class="tool-title">Focus Timer</div>
+            <div class="tool-desc">A synchronized Pomodoro timer for long study sessions.</div>
+            <div class="tag" style="background: rgba(255,255,255,0.1); color: #ccc;">Coming Soon</div>
+        </div>
+    </div>
+</body>
+</html>
