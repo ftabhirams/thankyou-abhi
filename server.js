@@ -9,9 +9,7 @@ const rooms = {};
 
 io.on('connection', (socket) => {
   
-  // NEW: Create Room with Random Code
   socket.on('create-room', (password) => {
-    // Generate 5-letter random code
     const roomId = Math.random().toString(36).substring(2, 7).toUpperCase();
     
     rooms[roomId] = { 
@@ -28,7 +26,6 @@ io.on('connection', (socket) => {
     socket.emit('force-video-change', rooms[roomId].currentVideo);
   });
 
-  // NEW: Join Existing Room
   socket.on('join-room', (data) => {
     const { roomId, password } = data;
     const roomCode = roomId.toUpperCase();
@@ -46,10 +43,16 @@ io.on('connection', (socket) => {
     socket.join(roomCode);
     socket.emit('auth-success', roomCode);
     socket.emit('role-assignment', { isHost: rooms[roomCode].host === socket.id });
-    socket.to(roomCode).emit('user-connected', socket.id);
+    
+    // NOTE: We no longer emit user-connected here! We wait for their camera.
     
     socket.emit('queue-updated', rooms[roomCode].queue);
     socket.emit('force-video-change', rooms[roomCode].currentVideo);
+  });
+
+  // PATCH: Only connect users AFTER their camera resolves
+  socket.on('room-ready', (roomId) => {
+      socket.to(roomId).emit('user-connected', socket.id);
   });
 
   // =====================================
@@ -125,7 +128,6 @@ io.on('connection', (socket) => {
         if (currentRoomSockets && currentRoomSockets.has(socket.id)) {
             socket.to(roomId).emit('user-disconnected', socket.id);
             if (room.host === socket.id && currentRoomSockets.size > 1) {
-                // Pass crown to next person
                 const remainingUsers = Array.from(currentRoomSockets).filter(id => id !== socket.id);
                 if (remainingUsers.length > 0) {
                     room.host = remainingUsers[0];
@@ -135,7 +137,6 @@ io.on('connection', (socket) => {
         }
     }
     
-    // Clean empty rooms
     for (const roomId in rooms) {
         const r = io.sockets.adapter.rooms.get(roomId);
         if (!r || r.size === 0) delete rooms[roomId];
