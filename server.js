@@ -2,8 +2,14 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
+const https = require('https'); 
 
 app.use(express.static('public'));
+
+// Keep-alive route
+app.get('/ping', (req, res) => {
+    res.status(200).send('Server is awake');
+});
 
 // Store room state (Queue, Video, and Host ID)
 const rooms = {}; 
@@ -32,7 +38,7 @@ io.on('connection', (socket) => {
     socket.emit('force-video-change', rooms[roomId].currentVideo);
 
     // =====================================
-    // MEDIA & QUEUE SYNC (Patched)
+    // MEDIA & QUEUE SYNC
     // =====================================
     
     socket.on('add-to-queue', (videoId) => {
@@ -113,4 +119,26 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+http.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+
+    // =====================================
+    // AUTOMATED KEEP-ALIVE SYSTEM
+    // =====================================
+    // Render automatically sets this environment variable for your live app
+    const APP_URL = process.env.RENDER_EXTERNAL_URL; 
+
+    if (APP_URL) {
+        // Ping the server every 14 minutes (840,000 milliseconds)
+        setInterval(() => {
+            https.get(`${APP_URL}/ping`, (resp) => {
+                console.log(`Keep-alive ping sent to ${APP_URL}. Status: ${resp.statusCode}`);
+            }).on("error", (err) => {
+                console.log("Keep-alive ping failed: " + err.message);
+            });
+        }, 14 * 60 * 1000); 
+        console.log(`Keep-alive initialized for ${APP_URL}`);
+    } else {
+        console.log('Keep-alive skipped: Running locally, no RENDER_EXTERNAL_URL found.');
+    }
+});
