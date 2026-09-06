@@ -2,38 +2,39 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
-const https = require('https'); 
 
+// Use built-in fetch (Requires Node.js 18+)
 app.use(express.static('public'));
 
-// Keep-alive route
-app.get('/ping', (req, res) => {
-    res.status(200).send('Server is awake');
-});
-
-// Store room state (Queue, Video, and Host ID)
 const rooms = {}; 
 
 io.on('connection', (socket) => {
-  socket.on('join-room', (roomId) => {
-    socket.join(roomId);
+  
+  // Secure Room Joining & Authentication
+  socket.on('join-room', (data) => {
+    const { roomId, password } = data;
     
-    // 1. INITIALIZE ROOM & HOST
     if (!rooms[roomId]) {
+      // Create new room with password
       rooms[roomId] = { 
-          currentVideo: 'dQw4w9WgXcQ', 
+          currentVideo: { id: 'dQw4w9WgXcQ', type: 'youtube' }, 
           queue: [],
-          host: socket.id // First person in is the Host
+          host: socket.id,
+          password: password || '' 
       };
+    } else {
+      // Check password if room exists
+      if (rooms[roomId].password !== '' && rooms[roomId].password !== password) {
+          socket.emit('auth-error', 'Incorrect password');
+          return;
+      }
     }
 
-    // Tell the user if they are the host
+    socket.join(roomId);
+    socket.emit('auth-success', roomId);
     socket.emit('role-assignment', { isHost: rooms[roomId].host === socket.id });
-    
-    // Tell others for WebRTC Mesh
     socket.to(roomId).emit('user-connected', socket.id);
     
-    // Sync new user with current media state
     socket.emit('queue-updated', rooms[roomId].queue);
     socket.emit('force-video-change', rooms[roomId].currentVideo);
 
@@ -41,53 +42,61 @@ io.on('connection', (socket) => {
     // MEDIA & QUEUE SYNC
     // =====================================
     
-    socket.on('add-to-queue', (videoId) => {
-      // SECURITY FIX: Prevent massive payloads and limit queue size
-      if (typeof videoId !== 'string' || videoId.length > 200) return;
-      if (rooms[roomId].queue.length >= 50) return;
+    socket.on('add-to-queue', async (videoId) => {
+      if (typeof videoId !== 'string' || videoId.length > 200 || rooms[roomId].queue.length >= 50) return;
 
-      rooms[roomId].queue.push(videoId);
+      // Fetch YouTube Title dynamically
+      let title = "Unknown Video";
+      try {
+          const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
+          const data = await response.json();
+          if (data.title) title = data.title;
+      } catch (e) { console.error("Could not fetch title"); }
+
+      rooms[roomId].queue.push({ id: videoId, title: title });
       io.to(roomId).emit('queue-updated', rooms[roomId].queue);
     });
 
-    socket.on('video-ended', (finishedVideoId) => {
-      if (rooms[roomId].currentVideo === finishedVideoId) {
-        if (rooms[roomId].queue.length > 0) {
-          const nextVideo = rooms[roomId].queue.shift();
-          rooms[roomId].currentVideo = nextVideo;
-          
-          io.to(roomId).emit('force-video-change', nextVideo);
-          io.to(roomId).emit('queue-updated', rooms[roomId].queue);
+    // Host-Only: Play specific song from queue
+    socket.on('play-from-queue', (index) => {
+        if (rooms[roomId].host === socket.id && rooms[roomId].queue[index]) {
+            const selectedVideo = rooms[roomId].queue.splice(index, 1)[0];
+            rooms[roomId].currentVideo = { id: selectedVideo.id, type: 'youtube' };
+            io.to(roomId).emit('force-video-change', rooms[roomId].currentVideo);
+            io.to(roomId).emit('queue-updated', rooms[roomId].queue);
         }
+    });
+
+    socket.on('video-ended', (finishedVideoId) => {
+      if (rooms[roomId].currentVideo.id === finishedVideoId && rooms[roomId].queue.length > 0) {
+          const nextVideo = rooms[roomId].queue.shift();
+          rooms[roomId].currentVideo = { id: nextVideo.id, type: 'youtube' };
+          io.to(roomId).emit('force-video-change', rooms[roomId].currentVideo);
+          io.to(roomId).emit('queue-updated', rooms[roomId].queue);
       }
     });
 
-    // SECURITY FIX: Only accept playback commands from the Host
+    // Timeline Scrubbing & Play/Pause (Host Only)
     socket.on('sync-video', (data) => {
-      if (rooms[roomId].host === socket.id) {
-          socket.to(roomId).emit('update-video', data);
-      }
+      if (rooms[roomId].host === socket.id) socket.to(roomId).emit('update-video', data);
     });
 
     socket.on('load-movie', (url) => {
       if (typeof url !== 'string' || url.length > 1000) return;
       if (rooms[roomId].host === socket.id) {
-          io.to(roomId).emit('load-movie', url);
+          rooms[roomId].currentVideo = { id: url, type: 'html5' };
+          io.to(roomId).emit('force-video-change', rooms[roomId].currentVideo);
       }
     });
 
     socket.on('sync-movie', (data) => {
-      if (rooms[roomId].host === socket.id) {
-          socket.to(roomId).emit('sync-movie', data);
-      }
+      if (rooms[roomId].host === socket.id) socket.to(roomId).emit('sync-movie', data);
     });
 
     // =====================================
-    // CHAT & WEBRTC SIGNALING
+    // CHAT & WEBRTC
     // =====================================
-
     socket.on('send-chat', (message) => {
-      // SECURITY FIX: Prevent massive text payloads
       if (typeof message !== 'string' || message.length > 1000) return;
       io.to(roomId).emit('receive-chat', message, socket.id);
     });
@@ -96,20 +105,13 @@ io.on('connection', (socket) => {
     socket.on('webrtc-answer', (answer, targetId) => io.to(targetId).emit('webrtc-answer', answer, socket.id));
     socket.on('webrtc-ice-candidate', (candidate, targetId) => io.to(targetId).emit('webrtc-ice-candidate', candidate, socket.id));
 
-    // =====================================
-    // DISCONNECT & MEMORY CLEANUP
-    // =====================================
     socket.on('disconnect', () => {
       socket.to(roomId).emit('user-disconnected', socket.id);
-
       const currentRoom = io.sockets.adapter.rooms.get(roomId);
       
-      // SECURITY FIX: Delete room data if empty to prevent RAM leaks
       if (!currentRoom || currentRoom.size === 0) {
           delete rooms[roomId]; 
-      } 
-      // HOST TRANSFER: If host leaves, give crown to next person
-      else if (rooms[roomId] && rooms[roomId].host === socket.id) {
+      } else if (rooms[roomId] && rooms[roomId].host === socket.id) {
           const newHostId = Array.from(currentRoom)[0];
           rooms[roomId].host = newHostId;
           io.to(roomId).emit('new-host', newHostId);
@@ -119,26 +121,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-
-    // =====================================
-    // AUTOMATED KEEP-ALIVE SYSTEM
-    // =====================================
-    // Render automatically sets this environment variable for your live app
-    const APP_URL = process.env.RENDER_EXTERNAL_URL; 
-
-    if (APP_URL) {
-        // Ping the server every 14 minutes (840,000 milliseconds)
-        setInterval(() => {
-            https.get(`${APP_URL}/ping`, (resp) => {
-                console.log(`Keep-alive ping sent to ${APP_URL}. Status: ${resp.statusCode}`);
-            }).on("error", (err) => {
-                console.log("Keep-alive ping failed: " + err.message);
-            });
-        }, 14 * 60 * 1000); 
-        console.log(`Keep-alive initialized for ${APP_URL}`);
-    } else {
-        console.log('Keep-alive skipped: Running locally, no RENDER_EXTERNAL_URL found.');
-    }
-});
+http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
