@@ -42,14 +42,24 @@ socket.on('auth-error', (msg) => { document.getElementById('auth-err').innerText
 
 socket.on('auth-success', (roomId) => {
     ROOM_ID = roomId;
+    
     document.getElementById('auth-overlay').style.display = 'none';
     document.getElementById('main-app').style.display = 'flex';
     document.getElementById('room-display-name').innerText = roomId;
     
+    if (!player) initYouTubePlayer();
+
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
         localStream = stream;
         document.getElementById('my-video').srcObject = stream;
-    }).catch(err => alert("Camera access denied."));
+        
+        // PATCH: We only tell the room we are ready AFTER our camera turns on
+        socket.emit('room-ready', ROOM_ID);
+        
+    }).catch(err => {
+        console.log("Camera access denied or missing.");
+        socket.emit('room-ready', ROOM_ID); // Connect anyway so they can watch
+    });
 });
 
 function toggleCamera() {
@@ -77,54 +87,65 @@ function toggleFullScreen() {
 }
 
 // ==========================================
-// 2. DRAGGABLE VIDEOS (Fixed Math)
+// 2. INDIVIDUAL DRAGGABLE VIDEOS
 // ==========================================
-const dragEl = document.getElementById('video-grid');
-let isDragging = false, startX, startY, initX, initY;
+let activeDragEl = null;
+let startX, startY, initX, initY;
 
 function startDrag(e) {
-    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'VIDEO') return;
-    isDragging = true;
+    const wrapper = e.target.closest('.video-wrapper');
+    if (!wrapper || e.target.tagName === 'BUTTON') return;
+    
+    if (e.type === 'mousedown') e.preventDefault(); // Prevents text selection
+    activeDragEl = wrapper;
     startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
     startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
     
-    const rect = dragEl.getBoundingClientRect();
+    const rect = activeDragEl.getBoundingClientRect();
     initX = rect.left; 
     initY = rect.top;
     
-    // Switch to fixed positioning so it floats cleanly over fullscreen
-    dragEl.style.position = 'fixed'; 
-    dragEl.style.margin = '0';
-    dragEl.style.right = 'auto'; 
-    dragEl.style.bottom = 'auto';
-    dragEl.style.left = initX + 'px';
-    dragEl.style.top = initY + 'px';
+    // Lock dimensions so it doesn't glitch when switching to fixed
+    activeDragEl.style.width = rect.width + 'px';
+    activeDragEl.style.height = rect.height + 'px';
+    
+    activeDragEl.style.position = 'fixed'; 
+    activeDragEl.style.margin = '0';
+    activeDragEl.style.right = 'auto'; 
+    activeDragEl.style.bottom = 'auto';
+    activeDragEl.style.left = initX + 'px';
+    activeDragEl.style.top = initY + 'px';
+    activeDragEl.style.zIndex = 1000;
 }
 
 function moveDrag(e) {
-    if (!isDragging) return;
-    e.preventDefault(); 
+    if (!activeDragEl) return;
+    if (e.cancelable) e.preventDefault(); // Stops mobile scroll while dragging
+    
     const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
     const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
     
-    dragEl.style.left = (initX + (clientX - startX)) + 'px';
-    dragEl.style.top = (initY + (clientY - startY)) + 'px';
+    activeDragEl.style.left = (initX + (clientX - startX)) + 'px';
+    activeDragEl.style.top = (initY + (clientY - startY)) + 'px';
 }
 
-function stopDrag() { isDragging = false; }
-
-if (dragEl) {
-    dragEl.addEventListener('mousedown', startDrag);
-    document.addEventListener('mousemove', moveDrag);
-    document.addEventListener('mouseup', stopDrag);
-    dragEl.addEventListener('touchstart', startDrag, {passive: false});
-    document.addEventListener('touchmove', moveDrag, {passive: false});
-    document.addEventListener('touchend', stopDrag);
+function stopDrag() { 
+    if(activeDragEl) {
+        activeDragEl.style.zIndex = 50;
+        activeDragEl = null; 
+    }
 }
+
+document.addEventListener('mousedown', startDrag, {passive: false});
+document.addEventListener('mousemove', moveDrag, {passive: false});
+document.addEventListener('mouseup', stopDrag);
+document.addEventListener('touchstart', startDrag, {passive: false});
+document.addEventListener('touchmove', moveDrag, {passive: false});
+document.addEventListener('touchend', stopDrag);
 
 
 // ==========================================
-// 3. HOST CONTROLS
+// 3. HOST CONTROLS & DYNAMIC BUTTONS
 // ==========================================
 socket.on('role-assignment', (data) => {
     isMyHost = data.isHost;
@@ -139,6 +160,11 @@ socket.on('new-host', (newHostId) => {
 function updateHostUI() {
     document.getElementById('host-badge').style.display = isMyHost ? 'inline-block' : 'none';
     document.getElementById('direct-video-container').style.display = isMyHost ? 'flex' : 'none';
+    
+    // Update Button Text
+    const queueBtn = document.getElementById('queue-btn');
+    if (queueBtn) queueBtn.innerText = isMyHost ? "Queue YT" : "Recommend";
+
     if (isMyHost) document.body.classList.add('host-mode');
     else document.body.classList.remove('host-mode');
 }
@@ -165,14 +191,14 @@ function createPeerConnection(targetUserId) {
         if (!wrapper) {
             wrapper = document.createElement('div');
             wrapper.id = `wrapper-${targetUserId}`;
-            wrapper.className = 'video-wrapper';
+            wrapper.className = 'video-wrapper'; // Now correctly configured for Individual dragging
             
             const friendVideo = document.createElement('video');
             friendVideo.id = `video-${targetUserId}`;
             friendVideo.autoplay = true; friendVideo.playsInline = true;
             
             wrapper.appendChild(friendVideo);
-            dragEl.appendChild(wrapper);
+            document.getElementById('video-grid').appendChild(wrapper);
         }
         document.getElementById(`video-${targetUserId}`).srcObject = event.streams[0];
     };
@@ -263,31 +289,29 @@ function stopScreenShare() {
 }
 
 // ==========================================
-// 5. YOUTUBE & CONTINUOUS SYNC (Fixed API Bug)
+// 5. YOUTUBE
 // ==========================================
 let player;
+let isYouTubeLoaded = false;
 let isPlayerReady = false;
 let pendingVideoId = null; 
 
 function onYouTubeIframeAPIReady() {
+    isYouTubeLoaded = true;
+}
+
+function initYouTubePlayer() {
+    if (!isYouTubeLoaded) { setTimeout(initYouTubePlayer, 200); return; }
     player = new YT.Player('yt-player', {
-        height: '100%',
-        width: '100%',
-        videoId: 'dQw4w9WgXcQ', // Default ID prevents API crash
+        height: '100%', width: '100%',
         playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0 },
-        events: { 
-            'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange 
-        }
+        events: { 'onReady': onPlayerReady, 'onStateChange': onPlayerStateChange }
     });
 }
 
 function onPlayerReady(event) {
     isPlayerReady = true;
-    if (pendingVideoId) {
-        player.loadVideoById(pendingVideoId);
-        pendingVideoId = null;
-    }
+    if (pendingVideoId) { player.loadVideoById(pendingVideoId); pendingVideoId = null; }
 }
 
 function onPlayerStateChange(event) {
@@ -299,7 +323,6 @@ function onPlayerStateChange(event) {
     }
 }
 
-// Host Background Sync Heartbeat
 setInterval(() => {
     if (isMyHost && isPlayerReady && player && player.getCurrentTime) {
         const state = player.getPlayerState();
@@ -311,12 +334,7 @@ setInterval(() => {
 
 socket.on('update-video', (data) => {
     if (!isPlayerReady || !player || isMyHost) return; 
-    
-    // Smooth seek to keep everyone aligned
-    if (Math.abs(player.getCurrentTime() - data.time) > 2) {
-        player.seekTo(data.time);
-    }
-    
+    if (Math.abs(player.getCurrentTime() - data.time) > 2) { player.seekTo(data.time); }
     const currState = player.getPlayerState();
     if (data.state === YT.PlayerState.PLAYING && currState !== YT.PlayerState.PLAYING) player.playVideo();
     else if (data.state === YT.PlayerState.PAUSED && currState !== YT.PlayerState.PAUSED) player.pauseVideo();
@@ -367,7 +385,6 @@ socket.on('force-video-change', (mediaObj) => {
         html5Container.style.display = 'none';
         if (!html5Video.paused) html5Video.pause();
         
-        // Race Condition Patch: Wait for player to build
         if (isPlayerReady && player && typeof player.loadVideoById === 'function') {
             player.loadVideoById(mediaObj.id);
         } else {
