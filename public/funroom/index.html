@@ -19,6 +19,13 @@
         #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; }
         .auth-card { background: var(--bg-panel); padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; text-align: center; }
         
+        /* Split Auth Styles */
+        .auth-section { display: none; flex-direction: column; gap: 10px; margin-top: 20px;}
+        .auth-section.active { display: flex; }
+        .auth-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn { flex: 1; background: var(--bg-input); padding: 10px; cursor: pointer; border-radius: 8px; font-weight: bold;}
+        .tab-btn.active { background: var(--accent); }
+
         .app-container { display: flex; width: 100%; height: 100%; }
         
         @media (max-width: 768px) {
@@ -41,19 +48,25 @@
         .media-wrapper { flex-grow: 1; position: relative; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); }
         #yt-player, #html5-video { width: 100%; height: 100%; border: none; }
         
+        /* DRAGGABLE VIDEOS */
         .floating-videos {
-            position: absolute; top: 15px; right: 15px; display: flex; flex-direction: column; gap: 10px; z-index: 50; pointer-events: none;
+            position: absolute; top: 15px; right: 15px; display: flex; flex-direction: column; gap: 10px; z-index: 50; 
+            cursor: grab; /* Shows it can be dragged */
         }
+        .floating-videos:active { cursor: grabbing; }
+        
         .video-wrapper { position: relative; pointer-events: auto; }
         .video-wrapper video { 
             width: 140px; height: 100px; object-fit: cover; background: #222; 
             border-radius: 12px; border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            pointer-events: none; /* Prevents video controls from blocking drag */
         }
 
-        .control-group { display: flex; gap: 8px; margin-bottom: 10px; }
-        input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: var(--bg-input); color: white; }
+        input { padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: var(--bg-input); color: white; }
         button { padding: 10px 15px; border-radius: 8px; border: none; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
-        
+        .control-group { display: flex; gap: 8px; margin-bottom: 10px; }
+        .control-group input { flex: 1;}
+
         .panel-section { background: rgba(0,0,0,0.2); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; max-height: 50%; }
         
         #queue-list { list-style: none; margin: 10px 0; overflow-y: auto; }
@@ -74,13 +87,31 @@
 </head>
 <body>
 
+    <!-- Split Room Entry Modal -->
     <div id="auth-overlay">
         <div class="auth-card">
-            <h2 style="justify-content: center; margin-bottom: 20px;">🛋️ Enter Fun Room</h2>
-            <input type="text" id="room-name" placeholder="Room Name (e.g. Squad123)" style="width: 100%; margin-bottom: 10px;">
-            <input type="password" id="room-pass" placeholder="Password (Optional)" style="width: 100%; margin-bottom: 15px;">
-            <button onclick="joinRoom()" style="width: 100%;">Join / Create Room</button>
-            <p id="auth-err" style="color: var(--danger); font-size: 13px; margin-top: 10px;"></p>
+            <h2>🛋️ Enter Fun Room</h2>
+            
+            <div class="auth-tabs">
+                <div class="tab-btn active" id="tab-join" onclick="switchTab('join')">Join Room</div>
+                <div class="tab-btn" id="tab-create" onclick="switchTab('create')">Create Room</div>
+            </div>
+
+            <!-- Join Form -->
+            <div id="form-join" class="auth-section active">
+                <input type="text" id="join-room-code" placeholder="Room Code (e.g. ZYCGX)" style="width: 100%; text-transform: uppercase;">
+                <input type="password" id="join-room-pass" placeholder="Password (Optional)" style="width: 100%;">
+                <button onclick="joinRoom()" style="width: 100%;">Enter Room</button>
+            </div>
+
+            <!-- Create Form -->
+            <div id="form-create" class="auth-section">
+                <p style="font-size: 13px; color: var(--text-muted); margin: 0;">A random code will be generated for your friends.</p>
+                <input type="password" id="create-room-pass" placeholder="Set Password (Optional)" style="width: 100%;">
+                <button onclick="createRoom()" style="width: 100%; background: var(--secondary);">Create New Room</button>
+            </div>
+
+            <p id="auth-err" style="color: var(--danger); font-size: 13px; margin-top: 15px;"></p>
             <a href="/" style="display: block; margin-top: 20px; color: var(--text-muted); text-decoration: none; font-size: 14px;">← Back to Hub</a>
         </div>
     </div>
@@ -90,7 +121,7 @@
         <div class="main-stage">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h2>
-                    🛋️ Fun Room <span id="room-display-name" style="color: var(--text-muted); font-size: 14px; margin-left: 10px;"></span>
+                    🛋️ Fun Room <span id="room-display-name" style="background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; font-family: monospace; letter-spacing: 2px; font-size: 16px; margin-left: 10px;"></span>
                     <span id="host-badge" style="display: none; font-size: 12px; background: #eab308; color: #000; padding: 2px 8px; border-radius: 20px; margin-left: 10px;">👑 Host</span>
                 </h2>
                 <button class="icon-btn" onclick="toggleFullScreen()" title="Full Screen">⛶</button>
@@ -103,6 +134,7 @@
             </div>
             
             <div class="media-wrapper" id="media-wrapper">
+                <!-- Draggable Videos -->
                 <div class="floating-videos" id="video-grid">
                     <div class="video-wrapper">
                         <video id="my-video" muted autoplay playsinline></video>
