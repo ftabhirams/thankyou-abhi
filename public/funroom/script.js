@@ -3,7 +3,7 @@ let ROOM_ID = '';
 let localStream;
 let screenStream = null;
 const peers = {}; 
-const iceQueues = {}; // PATCH: Fixes one-way video bug
+const iceQueues = {}; 
 let isMyHost = false; 
 
 const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
@@ -52,7 +52,6 @@ socket.on('auth-success', (roomId) => {
     }).catch(err => alert("Camera access denied."));
 });
 
-// Hardware Toggles
 function toggleCamera() {
     if (!localStream) return;
     const track = localStream.getVideoTracks()[0];
@@ -73,33 +72,38 @@ function toggleMic() {
 
 function toggleFullScreen() {
     const wrapper = document.getElementById('media-wrapper');
-    if (!document.fullscreenElement) wrapper.requestFullscreen().catch(e => {});
+    if (!document.fullscreenElement) wrapper.requestFullscreen().catch(e => console.log(e));
     else document.exitFullscreen();
 }
 
 // ==========================================
-// 2. DRAGGABLE VIDEOS
+// 2. DRAGGABLE VIDEOS (Fixed Math)
 // ==========================================
 const dragEl = document.getElementById('video-grid');
 let isDragging = false, startX, startY, initX, initY;
 
 function startDrag(e) {
-    if (e.target.tagName === 'BUTTON') return;
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'VIDEO') return;
     isDragging = true;
     startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
     startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-    const rect = dragEl.getBoundingClientRect();
-    const parentRect = dragEl.parentElement.getBoundingClientRect();
-    initX = rect.left - parentRect.left; 
-    initY = rect.top - parentRect.top;
     
-    dragEl.style.position = 'absolute';
-    dragEl.style.right = 'auto'; // Release right anchoring
+    const rect = dragEl.getBoundingClientRect();
+    initX = rect.left; 
+    initY = rect.top;
+    
+    // Switch to fixed positioning so it floats cleanly over fullscreen
+    dragEl.style.position = 'fixed'; 
+    dragEl.style.margin = '0';
+    dragEl.style.right = 'auto'; 
+    dragEl.style.bottom = 'auto';
+    dragEl.style.left = initX + 'px';
+    dragEl.style.top = initY + 'px';
 }
 
 function moveDrag(e) {
     if (!isDragging) return;
-    e.preventDefault();
+    e.preventDefault(); 
     const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
     const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
     
@@ -109,13 +113,14 @@ function moveDrag(e) {
 
 function stopDrag() { isDragging = false; }
 
-dragEl.addEventListener('mousedown', startDrag);
-document.addEventListener('mousemove', moveDrag);
-document.addEventListener('mouseup', stopDrag);
-
-dragEl.addEventListener('touchstart', startDrag, {passive: false});
-document.addEventListener('touchmove', moveDrag, {passive: false});
-document.addEventListener('touchend', stopDrag);
+if (dragEl) {
+    dragEl.addEventListener('mousedown', startDrag);
+    document.addEventListener('mousemove', moveDrag);
+    document.addEventListener('mouseup', stopDrag);
+    dragEl.addEventListener('touchstart', startDrag, {passive: false});
+    document.addEventListener('touchmove', moveDrag, {passive: false});
+    document.addEventListener('touchend', stopDrag);
+}
 
 
 // ==========================================
@@ -139,12 +144,12 @@ function updateHostUI() {
 }
 
 // ==========================================
-// 4. WEBRTC (Patched ICE Asymmetry Bug)
+// 4. WEBRTC MESH NETWORK
 // ==========================================
 function createPeerConnection(targetUserId) {
     const pc = new RTCPeerConnection(servers);
     peers[targetUserId] = pc;
-    iceQueues[targetUserId] = []; // Reset queue for this user
+    iceQueues[targetUserId] = []; 
 
     if (localStream) {
         const activeStream = screenStream ? screenStream : localStream;
@@ -189,7 +194,6 @@ socket.on('webrtc-offer', async (offer, senderId) => {
     await pc.setLocalDescription(answer);
     socket.emit('webrtc-answer', answer, senderId);
     
-    // Process queued ICE candidates
     if (iceQueues[senderId]) {
         for (let c of iceQueues[senderId]) await pc.addIceCandidate(new RTCIceCandidate(c));
         iceQueues[senderId] = [];
@@ -200,7 +204,6 @@ socket.on('webrtc-answer', async (answer, senderId) => {
     const pc = peers[senderId];
     if (pc) {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        // Process queued ICE candidates
         if (iceQueues[senderId]) {
             for (let c of iceQueues[senderId]) await pc.addIceCandidate(new RTCIceCandidate(c));
             iceQueues[senderId] = [];
@@ -214,7 +217,7 @@ socket.on('webrtc-ice-candidate', async (c, senderId) => {
         if (pc.remoteDescription && pc.remoteDescription.type) {
             await pc.addIceCandidate(new RTCIceCandidate(c)).catch(e=>console.log(e));
         } else {
-            iceQueues[senderId].push(c); // Queue it until ready!
+            iceQueues[senderId].push(c); 
         }
     }
 });
@@ -260,26 +263,45 @@ function stopScreenShare() {
 }
 
 // ==========================================
-// 5. YOUTUBE & CONTINUOUS SYNC
+// 5. YOUTUBE & CONTINUOUS SYNC (Fixed API Bug)
 // ==========================================
 let player;
+let isPlayerReady = false;
+let pendingVideoId = null; 
 
 function onYouTubeIframeAPIReady() {
     player = new YT.Player('yt-player', {
-        videoId: '', 
-        events: { 'onStateChange': onPlayerStateChange }
+        height: '100%',
+        width: '100%',
+        videoId: 'dQw4w9WgXcQ', // Default ID prevents API crash
+        playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0 },
+        events: { 
+            'onReady': onPlayerReady,
+            'onStateChange': onPlayerStateChange 
+        }
     });
 }
 
-function onPlayerStateChange(event) {
-    if (event.data === YT.PlayerState.ENDED && isMyHost) {
-        socket.emit('video-ended', ROOM_ID, player.getVideoData().video_id);
+function onPlayerReady(event) {
+    isPlayerReady = true;
+    if (pendingVideoId) {
+        player.loadVideoById(pendingVideoId);
+        pendingVideoId = null;
     }
 }
 
-// NEW: Heartbeat Sync (Host broadcasts time every 2 seconds)
+function onPlayerStateChange(event) {
+    if (isMyHost) {
+        socket.emit('sync-video', { roomId: ROOM_ID, state: event.data, time: player.getCurrentTime() });
+        if (event.data === YT.PlayerState.ENDED) {
+            socket.emit('video-ended', ROOM_ID, player.getVideoData().video_id);
+        }
+    }
+}
+
+// Host Background Sync Heartbeat
 setInterval(() => {
-    if (isMyHost && player && player.getCurrentTime) {
+    if (isMyHost && isPlayerReady && player && player.getCurrentTime) {
         const state = player.getPlayerState();
         if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.PAUSED) {
             socket.emit('sync-video', { roomId: ROOM_ID, state: state, time: player.getCurrentTime() });
@@ -288,9 +310,9 @@ setInterval(() => {
 }, 2000);
 
 socket.on('update-video', (data) => {
-    if (!player || isMyHost) return; 
+    if (!isPlayerReady || !player || isMyHost) return; 
     
-    // Only snap if we are off by more than 2 seconds
+    // Smooth seek to keep everyone aligned
     if (Math.abs(player.getCurrentTime() - data.time) > 2) {
         player.seekTo(data.time);
     }
@@ -344,12 +366,18 @@ socket.on('force-video-change', (mediaObj) => {
         ytContainer.style.display = 'block';
         html5Container.style.display = 'none';
         if (!html5Video.paused) html5Video.pause();
-        if (player && player.loadVideoById) player.loadVideoById(mediaObj.id);
+        
+        // Race Condition Patch: Wait for player to build
+        if (isPlayerReady && player && typeof player.loadVideoById === 'function') {
+            player.loadVideoById(mediaObj.id);
+        } else {
+            pendingVideoId = mediaObj.id;
+        }
     } 
     else if (mediaObj.type === 'html5') {
         ytContainer.style.display = 'none';
         html5Container.style.display = 'block';
-        if (player && player.pauseVideo) player.pauseVideo();
+        if (isPlayerReady && player && player.pauseVideo) player.pauseVideo();
         html5Video.src = mediaObj.id;
         html5Video.play().catch(e => console.log("Autoplay blocked"));
     }
@@ -366,7 +394,6 @@ function loadDirectMovie() {
     if(url) { socket.emit('load-movie', { roomId: ROOM_ID, url: url }); document.getElementById('direct-video-input').value = ''; }
 }
 
-// HTML5 Heartbeat sync
 setInterval(() => {
     if (isMyHost && html5Video && document.getElementById('html5-player-container').style.display !== 'none') {
         socket.emit('sync-movie', { roomId: ROOM_ID, state: html5Video.paused ? 'pause' : 'play', time: html5Video.currentTime });
