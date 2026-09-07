@@ -6,19 +6,19 @@ const peers = {};
 const iceQueues = {}; 
 let isMyHost = false; 
 
-// PATCH: Added TURN servers to bypass cellular firewalls (4G/5G)
+// INJECTED: Your private TURN server credentials for 4G/5G connections
 const servers = { 
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { 
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:thankyouabhi.metered.ca:80',
+            username: 'cd6d53d9c24ee9a45b047ec0',
+            credential: 'm3u7KW0RK9ncBgC3'
         },
         { 
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:thankyouabhi.metered.ca:443',
+            username: 'cd6d53d9c24ee9a45b047ec0',
+            credential: 'm3u7KW0RK9ncBgC3'
         }
     ] 
 };
@@ -41,7 +41,6 @@ function switchTab(tab) {
     document.getElementById('auth-err').innerText = "";
 }
 
-// PATCH: Aggressively wake up all media elements to bypass mobile Safari/Chrome locks
 function unlockMobileAudio() {
     if (player && typeof player.playVideo === 'function') {
         player.playVideo();
