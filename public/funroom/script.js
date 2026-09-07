@@ -1,6 +1,6 @@
 const socket = io('/');
 let ROOM_ID = '';
-let localStream;
+let localStream = null;
 let screenStream = null;
 const peers = {}; 
 const iceQueues = {}; 
@@ -42,23 +42,23 @@ socket.on('auth-error', (msg) => { document.getElementById('auth-err').innerText
 
 socket.on('auth-success', (roomId) => {
     ROOM_ID = roomId;
-    
-    // Make the room visible FIRST
     document.getElementById('auth-overlay').style.display = 'none';
     document.getElementById('main-app').style.display = 'flex';
     document.getElementById('room-display-name').innerText = roomId;
     
-    // NOW it is safe to build the YouTube Player
-    if (!player) {
-        initYouTubePlayer();
-    }
+    if (!player) initYouTubePlayer();
 
+    // Request Camera AFTER room is visible
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
         localStream = stream;
         document.getElementById('my-video').srcObject = stream;
-        socket.emit('room-ready', ROOM_ID); // Connect to others
+        isCameraReady = true;
+        processSignalQueue(); // Fire off any connections that were waiting!
+        socket.emit('room-ready', ROOM_ID);
     }).catch(err => {
-        console.log("Camera access denied or missing.");
+        console.warn("Camera access denied. User is a viewer.");
+        isCameraReady = true; // Still ready to RECEIVE video!
+        processSignalQueue();
         socket.emit('room-ready', ROOM_ID); 
     });
 });
@@ -83,7 +83,7 @@ function toggleMic() {
 
 function toggleFullScreen() {
     const wrapper = document.getElementById('media-wrapper');
-    if (!document.fullscreenElement) wrapper.requestFullscreen().catch(e => console.log(e));
+    if (!document.fullscreenElement) wrapper.requestFullscreen().catch(e => console.log("Fullscreen blocked"));
     else document.exitFullscreen();
 }
 
@@ -95,7 +95,7 @@ let startX, startY, initX, initY;
 
 function startDrag(e) {
     const wrapper = e.target.closest('.video-wrapper');
-    if (!wrapper || e.target.tagName === 'BUTTON') return;
+    if (!wrapper || e.target.closest('button')) return;
     
     if (e.type === 'mousedown') e.preventDefault(); 
     activeDragEl = wrapper;
@@ -167,8 +167,16 @@ function updateHostUI() {
 }
 
 // ==========================================
-// 4. WEBRTC MESH NETWORK
+// 4. WEBRTC SIGNALING QUEUE (The Race-Condition Fix)
 // ==========================================
+let isCameraReady = false;
+let signalQueue = [];
+
+function processSignalQueue() {
+    signalQueue.forEach(async (task) => await task());
+    signalQueue = [];
+}
+
 function createPeerConnection(targetUserId) {
     const pc = new RTCPeerConnection(servers);
     peers[targetUserId] = pc;
@@ -192,46 +200,59 @@ function createPeerConnection(targetUserId) {
             
             const friendVideo = document.createElement('video');
             friendVideo.id = `video-${targetUserId}`;
-            friendVideo.autoplay = true; friendVideo.playsInline = true;
+            friendVideo.autoplay = true; 
+            friendVideo.playsInline = true;
             
             wrapper.appendChild(friendVideo);
             document.getElementById('video-grid').appendChild(wrapper);
         }
-        document.getElementById(`video-${targetUserId}`).srcObject = event.streams[0];
+        const vidEl = document.getElementById(`video-${targetUserId}`);
+        vidEl.srcObject = event.streams[0];
+        
+        // Ensure browser forces playback on new streams
+        vidEl.onloadedmetadata = () => { vidEl.play().catch(e => console.log("Autoplay caught:", e)); };
     };
     return pc;
 }
 
-socket.on('user-connected', async (userId) => {
-    if(!localStream) return;
-    const pc = createPeerConnection(userId);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    socket.emit('webrtc-offer', offer, userId);
+socket.on('user-connected', (userId) => {
+    const task = async () => {
+        const pc = createPeerConnection(userId);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('webrtc-offer', offer, userId);
+    };
+    if (!isCameraReady) signalQueue.push(task); else task();
 });
 
-socket.on('webrtc-offer', async (offer, senderId) => {
-    const pc = createPeerConnection(senderId);
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit('webrtc-answer', answer, senderId);
-    
-    if (iceQueues[senderId]) {
-        for (let c of iceQueues[senderId]) await pc.addIceCandidate(new RTCIceCandidate(c));
-        iceQueues[senderId] = [];
-    }
-});
-
-socket.on('webrtc-answer', async (answer, senderId) => {
-    const pc = peers[senderId];
-    if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+socket.on('webrtc-offer', (offer, senderId) => {
+    const task = async () => {
+        const pc = createPeerConnection(senderId);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('webrtc-answer', answer, senderId);
+        
         if (iceQueues[senderId]) {
             for (let c of iceQueues[senderId]) await pc.addIceCandidate(new RTCIceCandidate(c));
             iceQueues[senderId] = [];
         }
-    }
+    };
+    if (!isCameraReady) signalQueue.push(task); else task();
+});
+
+socket.on('webrtc-answer', (answer, senderId) => {
+    const task = async () => {
+        const pc = peers[senderId];
+        if (pc) {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            if (iceQueues[senderId]) {
+                for (let c of iceQueues[senderId]) await pc.addIceCandidate(new RTCIceCandidate(c));
+                iceQueues[senderId] = [];
+            }
+        }
+    };
+    if (!isCameraReady) signalQueue.push(task); else task();
 });
 
 socket.on('webrtc-ice-candidate', async (c, senderId) => {
@@ -251,6 +272,7 @@ socket.on('user-disconnected', (userId) => {
     if (wrapper) wrapper.remove();
 });
 
+// Screen Sharing Logic
 async function toggleScreenShare() {
     const btn = document.getElementById('screen-share-btn');
     if (screenStream) { stopScreenShare(); return; }
@@ -285,8 +307,9 @@ function stopScreenShare() {
     screenStream = null;
 }
 
+
 // ==========================================
-// 5. YOUTUBE & CONTINUOUS SYNC 
+// 5. YOUTUBE API (The Robust Auto-Recovery Fix)
 // ==========================================
 let player;
 let isYouTubeLoaded = false;
@@ -298,20 +321,27 @@ function onYouTubeIframeAPIReady() {
 }
 
 function initYouTubePlayer() {
-    if (!isYouTubeLoaded) {
-        setTimeout(initYouTubePlayer, 200); 
+    if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
+        setTimeout(initYouTubePlayer, 300); // Wait for external script
         return;
     }
-    player = new YT.Player('yt-player', {
-        height: '100%',
-        width: '100%',
-        videoId: 'dQw4w9WgXcQ', // <--- BUG FIX: Added this line back!
-        playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0 },
-        events: { 
-            'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange 
-        }
-    });
+    
+    try {
+        player = new YT.Player('yt-player', {
+            height: '100%',
+            width: '100%',
+            videoId: 'dQw4w9WgXcQ',
+            playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0, 'enablejsapi': 1 },
+            events: { 
+                'onReady': onPlayerReady,
+                'onStateChange': onPlayerStateChange,
+                'onError': (e) => console.error("YouTube Player Error", e.data)
+            }
+        });
+    } catch (err) {
+        console.error("YouTube Ghost Load detected, restarting player...", err);
+        setTimeout(initYouTubePlayer, 1000);
+    }
 }
 
 function onPlayerReady(event) {
@@ -333,7 +363,7 @@ function onPlayerStateChange(event) {
 
 // Host Background Sync Heartbeat
 setInterval(() => {
-    if (isMyHost && isPlayerReady && player && player.getCurrentTime) {
+    if (isMyHost && isPlayerReady && player && typeof player.getCurrentTime === 'function') {
         const state = player.getPlayerState();
         if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.PAUSED) {
             socket.emit('sync-video', { roomId: ROOM_ID, state: state, time: player.getCurrentTime() });
@@ -342,7 +372,7 @@ setInterval(() => {
 }, 2000);
 
 socket.on('update-video', (data) => {
-    if (!isPlayerReady || !player || isMyHost) return; 
+    if (!isPlayerReady || !player || isMyHost || typeof player.seekTo !== 'function') return; 
     
     if (Math.abs(player.getCurrentTime() - data.time) > 2) {
         player.seekTo(data.time);
@@ -398,17 +428,16 @@ socket.on('force-video-change', (mediaObj) => {
         html5Container.style.display = 'none';
         if (!html5Video.paused) html5Video.pause();
         
-        // Wait for player to build before trying to play a video!
         if (isPlayerReady && player && typeof player.loadVideoById === 'function') {
             player.loadVideoById(mediaObj.id);
         } else {
-            pendingVideoId = mediaObj.id;
+            pendingVideoId = mediaObj.id; // Store in memory until API recovers
         }
     } 
     else if (mediaObj.type === 'html5') {
         ytContainer.style.display = 'none';
         html5Container.style.display = 'block';
-        if (isPlayerReady && player && player.pauseVideo) player.pauseVideo();
+        if (isPlayerReady && player && typeof player.pauseVideo === 'function') player.pauseVideo();
         html5Video.src = mediaObj.id;
         html5Video.play().catch(e => console.log("Autoplay blocked"));
     }
