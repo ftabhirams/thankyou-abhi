@@ -6,17 +6,16 @@ const peers = {};
 const iceQueues = {}; 
 let isMyHost = false; 
 
-// INJECTED: Your private TURN server credentials for 4G/5G connections
+// STRICT TURN ONLY: No Google backups. Forces the app to use Metered.live.
 const servers = { 
     iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
         { 
-            urls: 'turn:thankyouabhi.metered.ca:80',
-            username: 'cd6d53d9c24ee9a45b047ec0',
-            credential: 'm3u7KW0RK9ncBgC3'
-        },
-        { 
-            urls: 'turn:thankyouabhi.metered.ca:443',
+            urls: [
+                'turn:thankyouabhi.metered.live:80',
+                'turn:thankyouabhi.metered.live:443',
+                'turn:thankyouabhi.metered.live:443?transport=tcp',
+                'turns:thankyouabhi.metered.live:443?transport=tcp'
+            ],
             username: 'cd6d53d9c24ee9a45b047ec0',
             credential: 'm3u7KW0RK9ncBgC3'
         }
@@ -508,3 +507,4 @@ socket.on('receive-chat', (msg, senderId) => {
     chatBox.innerHTML += `<div class="chat-msg ${isMe ? 'self' : ''}"><b>${isMe ? 'You' : 'Friend'}</b> ${escapeHTML(msg)}</div>`;
     chatBox.scrollTop = chatBox.scrollHeight;
 });
+        
