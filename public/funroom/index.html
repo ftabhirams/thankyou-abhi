@@ -16,8 +16,9 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--bg-main); color: var(--text-main); font-family: 'Inter', sans-serif; display: flex; height: 100vh; overflow: hidden; }
         
-        #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; }
-        .auth-card { background: var(--bg-panel); padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; text-align: center; }
+        /* PATCH: Background is now fully opaque so it hides the loading room behind it */
+        #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-main); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+        .auth-card { background: var(--bg-panel); padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
         
         .auth-section { display: none; flex-direction: column; gap: 10px; margin-top: 20px;}
         .auth-section.active { display: flex; }
@@ -47,7 +48,6 @@
         .media-wrapper { flex-grow: 1; position: relative; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); }
         #yt-player, #html5-video { width: 100%; height: 100%; border: none; }
         
-        /* INDIVIDUAL DRAGGABLE VIDEOS */
         .floating-videos {
             position: absolute; top: 15px; right: 15px; display: flex; flex-direction: column; gap: 10px; z-index: 50; 
         }
@@ -56,7 +56,7 @@
         .video-wrapper video { 
             width: 140px; height: 100px; object-fit: cover; background: #222; 
             border-radius: 12px; border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            pointer-events: none; /* Prevents video controls from blocking drag */
+            pointer-events: none; 
         }
 
         input { padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: var(--bg-input); color: white; }
@@ -109,7 +109,8 @@
         </div>
     </div>
 
-    <div class="app-container" id="main-app" style="display: none;">
+    <!-- PATCH: display: none removed so YouTube can build in the background -->
+    <div class="app-container" id="main-app">
         <div class="main-stage">
             
             <div style="display: flex; align-items: center; margin-bottom: 5px;">
@@ -136,17 +137,15 @@
                     <div id="yt-player"></div>
                 </div>
                 <div id="html5-player-container" style="display: none; width: 100%; height: 100%;">
-                    <video id="html5-video" controls controlslist="nodownload"></video>
+                    <video id="html5-video" controls playsinline controlslist="nodownload"></video>
                 </div>
             </div>
 
-            <!-- MOVED: Full Screen Button now sits nicely aligned to the bottom right of the video player -->
             <div style="display: flex; justify-content: flex-end; margin-top: 5px;">
                 <button class="icon-btn" onclick="toggleFullScreen()" style="font-size: 13px; background: var(--bg-panel); color: var(--text-main); border: 1px solid rgba(255,255,255,0.1);">
                     ⛶ Full Screen
                 </button>
             </div>
-
         </div>
 
         <div class="sidebar">
