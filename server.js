@@ -44,13 +44,10 @@ io.on('connection', (socket) => {
     socket.emit('auth-success', roomCode);
     socket.emit('role-assignment', { isHost: rooms[roomCode].host === socket.id });
     
-    // NOTE: We no longer emit user-connected here! We wait for their camera.
-    
     socket.emit('queue-updated', rooms[roomCode].queue);
     socket.emit('force-video-change', rooms[roomCode].currentVideo);
   });
 
-  // PATCH: Only connect users AFTER their camera resolves
   socket.on('room-ready', (roomId) => {
       socket.to(roomId).emit('user-connected', socket.id);
   });
